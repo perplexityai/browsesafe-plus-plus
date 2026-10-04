@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use BrowseSafe++, please cite the paper."
+title: "BrowseSafe++ SDK"
+url: "https://github.com/perplexityai/browsesafe-plus-plus"
+license: MIT
+authors:
+  - name: "Perplexity AI, Inc."
+preferred-citation:
+  type: article
+  title: "BrowseSafe++: Benchmarking Prompt Injection Detection Across Web Contexts, Languages, and Browser Views"
+  authors:
+    - {family-names: Chen, given-names: Yuetian}
+    - {family-names: Zhang, given-names: Kaiyuan}
+    - {family-names: Du, given-names: Yuntao}
+    - {family-names: Li, given-names: Thomas}
+    - {family-names: Tenenholtz, given-names: Mark}
+    - {family-names: Polley, given-names: Kyle}
+    - {family-names: Ma, given-names: Jerry}
+    - {family-names: Yarats, given-names: Denis}
+    - {family-names: Li, given-names: Ninghui}
+  year: 2026
+  journal: "arXiv preprint arXiv:2610.17457"
+  url: "https://arxiv.org/abs/2610.17457"
+  identifiers:
+    - {type: other, value: "arXiv:2610.17457", description: "arXiv identifier"}
