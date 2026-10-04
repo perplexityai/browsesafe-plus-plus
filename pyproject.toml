@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "browsesafe-pp"
+version = "0.1.0"
+description = "Load BrowseSafe++ attack/control web pages, evaluate prompt-injection detectors and run adaptive attack campaigns"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pyarrow>=14", "huggingface-hub>=0.24,<2", "filelock>=3.12,<4"]
+keywords = ["prompt injection", "benchmark", "llm security", "browser agents"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Security",
+]
+
+[project.urls]
+Homepage = "https://yuetian.me/browsesafe-plus-plus/"
+Repository = "https://github.com/perplexityai/browsesafe-plus-plus"
+Documentation = "https://github.com/perplexityai/browsesafe-plus-plus/blob/main/docs/index.md"
+Issues = "https://github.com/perplexityai/browsesafe-plus-plus/issues"
+
+[project.optional-dependencies]
+eval = ["httpx>=0.27,<1"]
+screenshot = ["Pillow>=10"]
+browser = ["playwright>=1.51,<2", "httpx>=0.27,<1"]
+dev = ["pytest>=7", "httpx>=0.27,<1", "Pillow>=10"]
+
+[project.scripts]
+browsesafe = "browsesafe_pp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
