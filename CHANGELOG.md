@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+The leaderboard `test` split is private; the public dataset ships `train` only.
+
+- `load()`, `iter_batches()` and `browsesafe evaluate` default to `split="train"`. New `PRIVATE_SPLITS = frozenset({"test"})`; requesting a private split that a source does not contain raises a `ValueError` that points to `docs/leaderboard.md`. Local sources and the internal dataset still load `test`.
+- Endpoint evaluation contract: `browsesafe serve --predict module:function` exposes a detector as `POST /predict` / `GET /health` (standard library only), and `EndpointDetector` (needs `httpx`) calls such an endpoint with a bearer token, timeout and bounded retries on timeouts and 5xx.
+- Report provenance: the `DetectionReport` manifest records `partition`, `evaluator` (default `"self"`) and `run_id`; `evaluate`, `evaluate_async` and `score` take `evaluator=` / `run_id=`; the CLI takes `--evaluator` / `--run-id`.
+- Docs: new `docs/leaderboard.md` (two tracks, the `/predict` and OpenAI-compatible agent contracts, why the test set is not distributed); the adaptive budget caps are documented as the per-run cap for leaderboard campaigns; project URLs moved to <https://browsesafe.perplexity.ai/>.
+
 ## 0.1.0
 
 First public version of the SDK.

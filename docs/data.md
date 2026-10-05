@@ -7,19 +7,19 @@ A BrowseSafe++ source is a directory of Parquet shards, one row per page:
 ```
 <source>/
   data/members-train-0000.parquet
-  data/members-test-0000.parquet
+  data/members-train-0001.parquet
   ...
   screenshots/<first two digits>/<entry_id>.jpg     # optional; flat screenshots/<entry_id>.jpg also works
 ```
 
 `bs.load(source=...)` accepts either `<source>` or `<source>/data`. Without `source=`, the same layout is downloaded from the Hugging Face dataset named by `BROWSESAFE_DATASET` (default `perplexity-ai/browsesafe-plus-plus`) at `revision=` (default `main`). Pin a 40-character commit for comparable runs; the manifest records the resolved commit and `revision_pinned`.
 
-Hugging Face exposes separate `train` and `test` splits. The `screenshot` column is an image feature that displays each row's JPEG in the dataset viewer and decodes to a PIL image with `datasets`. Image files stay separate from the text shards, so text-only SDK loads do not download the images. Install `datasets` and `Pillow` for this example:
+The public Hugging Face dataset exposes the `train` split; the `test` split is private (see [Leaderboard](leaderboard.md)). The `screenshot` column is an image feature that displays each row's JPEG in the dataset viewer and decodes to a PIL image with `datasets`. Image files stay separate from the text shards, so text-only SDK loads do not download the images. Install `datasets` and `Pillow` for this example:
 
 ```python
 from datasets import load_dataset
 
-pages = load_dataset("perplexity-ai/browsesafe-plus-plus", split="test", streaming=True)
+pages = load_dataset("perplexity-ai/browsesafe-plus-plus", split="train", streaming=True)
 page = next(iter(pages))
 image = page["screenshot"]
 ```
@@ -29,8 +29,10 @@ image = page["screenshot"]
 | | |
 |---|---|
 | Pairs | 38,675 (77,350 pages) |
-| Train | 29,500 pairs |
-| Test | 9,175 pairs (18,350 pages) |
+| Train | 29,500 pairs (59,000 pages), public |
+| Test | 9,175 pairs (18,350 pages), private |
+
+Only `train` is distributed. The `test` partition lives in a private repository (`perplexity-ai/browsesafe-plus-plus-internal`) and is evaluated by SII against submitted endpoints; `bs.PRIVATE_SPLITS` names it, and `load(split="test")` raises a clear `ValueError` when the source does not contain it. Local sources that include test rows (the offline fixture, or the internal dataset selected with `BROWSESAFE_DATASET`) load it normally. See [Leaderboard](leaderboard.md) for the reasons and the submission process.
 
 Rows `NNNNN_malicious` (`arm="attack"`, `label="yes"`) and `NNNNN_benign` (`arm="control"`, `label="no"`) form one pair. The control is the attacked page with the injection removed. Both members always share a split. The split is assigned by page, so the test split measures generalisation to new page contexts; the same injection text can appear in train and test pages.
 
@@ -68,7 +70,7 @@ pip install "browsesafe-pp[screenshot]"
 import browsesafe_pp as bs
 from PIL import Image
 
-benchmark = bs.load(split="test", view="screenshot", n_pairs=20)
+benchmark = bs.load(split="train", view="screenshot", n_pairs=20)
 pair = benchmark.pairs[0]
 attack_image = Image.open(pair.malicious.content)
 control_image = Image.open(pair.benign.content)
@@ -108,7 +110,7 @@ The loaded `Page` exposes the selected view as `content`, the label as `injected
 | `entry_id` | string | `NNNNN_malicious` or `NNNNN_benign` |
 | `arm` | string | `attack` or `control` |
 | `label` | string | `yes` (injection present) or `no` |
-| `split` | string | `train` or `test` |
+| `split` | string | `train` (public) or `test` (private) |
 
 ### Page and context
 
@@ -170,8 +172,9 @@ Use `browsesafe info` (or `bs.describe()`) to see the counts in the source you h
 ```python
 import browsesafe_pp as bs
 
-bs.load(split="test", view="markdown", n_pairs=500, seed=7)
-bs.load(split=None)                                             # every partition
+bs.load(view="markdown", n_pairs=500, seed=7)                  # split="train" is the default
+bs.load(split="test", source="/data/browsesafe-pp-internal")    # only sources that contain the private split
+bs.load(split=None)                                             # every partition in the source
 bs.load(filters={"page_type": ["thread", "inbox"]})
 bs.load(filters={"language_payload": ["es", "pt"]})            # list fields: any overlap
 bs.load(source="/data/browsesafe-pp", n_pairs=10)               # local shards
@@ -188,7 +191,7 @@ Sampling is a deterministic hash of the source identity, pair id and `seed`, so 
 `load()` keeps the selected pages in memory. For full splits, iterate in batches:
 
 ```python
-for batch in bs.iter_batches(split="test", view="html", batch_pairs=64, order="source"):
+for batch in bs.iter_batches(split="train", view="html", batch_pairs=64, order="source"):
     report = bs.evaluate(batch, my_detector)
     ...   # save or aggregate per batch
 ```

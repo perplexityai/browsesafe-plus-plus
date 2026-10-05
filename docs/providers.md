@@ -49,6 +49,12 @@ User content may be a string or a list of OpenAI content parts (text and `image_
 - Evaluation turns provider errors into `error` outcomes and unparseable answers into `invalid_prediction` outcomes; both are reported, never silently relabelled.
 - `provider.configuration` is safe to record: it includes endpoint, model and settings but never the API key.
 
+## Leaderboard agent track
+
+The provider protocol is also the submission contract for agents: SII evaluates an agent on the private test split by pointing `OpenAICompatible` at **your OpenAI-compatible chat-completions endpoint with tool calling** and running the adaptive campaign against it under a fixed per-run `Budget`. Your endpoint must accept `tools` / `tool_choice` and return `tool_calls` in the OpenAI format; you give SII the base URL, the model name and a bearer token through the [submission form](https://browsesafe.perplexity.ai/leaderboard/#submit). See [Leaderboard](leaderboard.md) and [Adaptive attacks](adaptive.md#leaderboard-evaluation).
+
+For detectors, the analogous contract is the `/predict` endpoint served by `browsesafe serve` and called by `EndpointDetector`; see [Classification](classification.md#serving-a-detector).
+
 ## Using another client
 
 Anything with an async `chat(messages, *, max_tokens, temperature, tools, tool_choice)` method that returns an object with `text`, `tool_calls` and `usage` can replace `OpenAICompatible` in `ModelDetector`. For full control, write your own detector function instead (see [Classification](classification.md)).

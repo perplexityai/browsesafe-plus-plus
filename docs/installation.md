@@ -22,7 +22,7 @@ pytest
 
 | Extra | Adds | Needed for |
 |---|---|---|
-| `eval` | `httpx` | `OpenAICompatible`, `ModelDetector`, `browsesafe evaluate --model` |
+| `eval` | `httpx` | `OpenAICompatible`, `ModelDetector`, `EndpointDetector`, `browsesafe evaluate --model` |
 | `screenshot` | `Pillow` | `view="screenshot"` and `browsesafe_pp.screenshot` |
 | `browser` | `playwright`, `httpx` | `browsesafe_pp.browser.PlaywrightBackend`, `ChatModel` |
 | `dev` | `pytest`, `httpx`, `Pillow` | running the test suite |
@@ -43,11 +43,11 @@ from browsesafe_pp.testing import write_fixture
 write_fixture("./fixture", n_pairs=12)
 ```
 
-The fixture pages are fictional and their "injections" are harmless marker sentences.
+The fixture pages are fictional and their "injections" are harmless marker sentences. Unlike the public dataset, the fixture contains both `train` and `test` rows, so you can exercise `split="test"` code paths offline.
 
 ## The real dataset
 
-The SDK defaults to [perplexity-ai/browsesafe-plus-plus](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus). To select another repository, set:
+The SDK defaults to [perplexity-ai/browsesafe-plus-plus](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus), which contains the `train` partition. The `test` partition is private and evaluated by SII (see [Leaderboard](leaderboard.md)); `load(split="test")` against the public dataset raises a `ValueError`. To select another repository (SII sets this to the internal dataset for leaderboard runs), set:
 
 ```bash
 export BROWSESAFE_DATASET=perplexity-ai/browsesafe-plus-plus

@@ -16,7 +16,7 @@ A `Context` is one attack opportunity: the page the agent will read, the user's 
 context = a.Context(
     context_id="00042", task="Summarize the reviews", observation=page_text,
     goal="Make the summary recommend product X", slot=a.Slot(start, end),
-    view="markdown", split="test",
+    view="markdown", split="train",
 )
 ```
 
@@ -76,7 +76,7 @@ pool = bs.load(split="train", task="evidence", n_pairs=500)
 seeds = a.seeds.from_benchmark(pool, n=8, query=f"{context.task} {context.goal}")
 ```
 
-Take seeds from the training split and contexts from the test split. In `mode="replay"` every candidate must be an unchanged registered seed (a non-adaptive baseline); in `mode="generate"` candidates may also be new payloads, which are recorded as `adaptive_generated`.
+Take seeds from one sample of the training split and contexts from another (SII uses the private test split for leaderboard campaigns; see [Leaderboard evaluation](#leaderboard-evaluation)). In `mode="replay"` every candidate must be an unchanged registered seed (a non-adaptive baseline); in `mode="generate"` candidates may also be new payloads, which are recorded as `adaptive_generated`.
 
 ### Budget
 
@@ -86,7 +86,7 @@ budget = a.Budget(max_candidates=8, max_attacker_calls=8, max_target_calls=10,
                   max_model_calls=None, max_tokens=None, max_cost_usd=None)
 ```
 
-Every call is charged, including failures and timeouts. Callbacks report model usage through `usage=a.Usage(...)` on candidates, results and verdicts. A callback that never calls a model is marked with `@a.local_callback`; an unmarked callback that reports no usage is counted as unreported, so the summary shows a lower bound rather than a silent zero.
+Every call is charged, including failures and timeouts, and the campaign stops as soon as any cap is reached (`stop_reason` says which: `candidate_budget_exhausted` or `call_or_time_budget_exhausted`). `max_candidates`, `max_attacker_calls`, `max_target_calls` and `max_judge_calls` bound the number of requests per run; `max_seconds` and `call_timeout` bound wall-clock time; `max_model_calls`, `max_tokens` and `max_cost_usd` bound reported model usage. Callbacks report model usage through `usage=a.Usage(...)` on candidates, results and verdicts. A callback that never calls a model is marked with `@a.local_callback`; an unmarked callback that reports no usage is counted as unreported, so the summary shows a lower bound rather than a silent zero.
 
 ## Running a campaign
 
@@ -172,7 +172,7 @@ report = a.reports.aggregate(["runs/00042", "runs/00043", result])
 ## Worked examples
 
 - [`examples/adaptive_local.py`](../examples/adaptive_local.py): one campaign against a deliberately brittle local target; no network, no model.
-- [`examples/adaptive_seeded.py`](../examples/adaptive_seeded.py): test-split contexts, training-split seeds and `PortfolioSearch`; runs on the offline fixture.
+- [`examples/adaptive_seeded.py`](../examples/adaptive_seeded.py): held-out contexts (`--context-split`), training-split seeds and `PortfolioSearch`; runs on the offline fixture.
 
 ```bash
 python -m browsesafe_pp.testing ./fixture
@@ -181,9 +181,15 @@ python examples/adaptive_seeded.py --source ./fixture --output runs/adaptive-see
 
 The local targets are stand-ins that show the loop; their numbers are not benchmark measurements. For a real study, replace the target with your agent, the judge with an outcome check for the goal, and the mutator with your attack model.
 
+## Leaderboard evaluation
+
+For the agent track of the [leaderboard](leaderboard.md), the contract is **an OpenAI-compatible chat-completions endpoint with tool calling**: the interface `bs.OpenAICompatible` already speaks (`/chat/completions`, `tools`, `tool_choice`, bearer token). You expose your agent at such a URL; SII runs the campaign against it on the private `test` split, using the browser `ChatModel` target or an equivalent wrapper, with the seeds and judge fixed by the protocol. The budget is the per-run cap above: a fixed `a.Budget` (candidates, attacker/target/judge calls, seconds, and optionally model calls, tokens and cost) applies to every submission, so no run can exceed the declared number of requests to your endpoint. Submit the URL and credentials through the [submission form](https://browsesafe.perplexity.ai/leaderboard/#submit).
+
+Locally, the public `train` split gives you contexts and seeds to develop against; those results are self-reported and do not appear on the main leaderboard.
+
 ## Good practice
 
-- Contexts from `test`, seeds and policy learning from `train`.
+- Seeds and policy learning from `train`; contexts from a disjoint sample (`test` for verified leaderboard runs).
 - Keep the judge independent of the attacker (a different model, or a deterministic check).
 - Report confirmed successes with their Wilson interval and the full budget, including baseline-failed contexts.
 - Keep `events.jsonl`: it is the evidence for every number in `summary.json`.

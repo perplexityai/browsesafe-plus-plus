@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "browsesafe-pp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Load BrowseSafe++ attack/control web pages, evaluate prompt-injection detectors and run adaptive attack campaigns"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://yuetian.me/browsesafe-plus-plus/"
+Homepage = "https://browsesafe.perplexity.ai/"
 Repository = "https://github.com/perplexityai/browsesafe-plus-plus"
 Documentation = "https://github.com/perplexityai/browsesafe-plus-plus/blob/main/docs/index.md"
 Issues = "https://github.com/perplexityai/browsesafe-plus-plus/issues"

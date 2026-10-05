@@ -7,7 +7,7 @@ from .evaluation.classification import DetectionReport, EndpointDetector, ModelD
 from .providers import OpenAICompatible, ProviderError
 from . import adaptive, evaluation, providers
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ALL_VIEWS", "DEFAULT_DATASET", "DEFAULT_REVISION", "PRIVATE_SPLITS", "SCREENSHOT_VIEW", "VIEWS", "Benchmark",
