@@ -51,7 +51,8 @@ if __name__ == "__main__":
     parser.add_argument("--source", help="Local shard directory; omit to download from the Hub")
     parser.add_argument("--model", help="Model name (default: $BROWSESAFE_MODEL)")
     parser.add_argument("--mock", action="store_true", help="Use an offline stand-in model")
-    parser.add_argument("--split", default="test")
+    parser.add_argument("--split", default="train",
+                        help="Partition; 'test' is private and only available in a local source or the internal dataset")
     parser.add_argument("--view", default="html", choices=("html", "markdown", "accessibility", "screenshot"))
     parser.add_argument("--n-pairs", type=int, default=50)
     parser.add_argument("--concurrency", type=int, default=8)

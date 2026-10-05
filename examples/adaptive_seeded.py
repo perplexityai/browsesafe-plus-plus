@@ -3,9 +3,10 @@
     python -m browsesafe_pp.testing ./fixture
     python examples/adaptive_seeded.py --source ./fixture --output runs/adaptive-seeded
 
-Each test-split pair becomes one context (its benign page and task). Seeds come from the
-training split only. The target and judge are local stand-ins; replace them with your agent
-and an outcome judge to run a real study.
+Each context pair becomes one context (its benign page and task); seeds come from a separate
+sample of the training split. Pass ``--context-split test`` when your source has the private test
+rows (the offline fixture does; the public Hub dataset does not). The target and judge are local
+stand-ins; replace them with your agent and an outcome judge to run a real study.
 """
 import argparse
 import asyncio
@@ -53,7 +54,7 @@ async def mutate(request: a.SearchRequest) -> a.Candidate:
 
 async def main(args) -> None:
     pool = bs.load(source=args.source, split="train", task="evidence", n_pairs=args.pool_pairs)
-    contexts = bs.load(source=args.source, split="test", n_pairs=args.contexts)
+    contexts = bs.load(source=args.source, split=args.context_split, n_pairs=args.contexts, seed=7)
     results = []
     for pair in contexts.pairs:
         end = pair.benign.content.find("</main>")
@@ -76,6 +77,8 @@ if __name__ == "__main__":
     parser.add_argument("--source", help="Local shard directory; omit to download from the Hub")
     parser.add_argument("--output", required=True, help="New directory; one subdirectory per context")
     parser.add_argument("--contexts", type=int, default=3)
+    parser.add_argument("--context-split", default="train",
+                        help="Partition for contexts; 'test' needs a source that contains the private split")
     parser.add_argument("--pool-pairs", type=int, default=200)
     parser.add_argument("--seed-count", type=int, default=3)
     asyncio.run(main(parser.parse_args()))

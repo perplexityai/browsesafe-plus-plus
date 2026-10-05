@@ -38,7 +38,8 @@ def main(argv: list[str] | None = None) -> None:
 
     run = commands.add_parser("evaluate", help="Score a detector on attack/control pairs")
     _source_arguments(run)
-    run.add_argument("--split", default="test", help="Partition to evaluate; 'all' for every partition")
+    run.add_argument("--split", default="train",
+                     help="Partition to evaluate; 'all' for every partition. 'test' is private (docs/leaderboard.md)")
     run.add_argument("--view", choices=ALL_VIEWS, default="html")
     run.add_argument("--n-pairs", type=int, default=100, help="Number of pairs; 0 for all")
     run.add_argument("--seed", type=int, default=42)

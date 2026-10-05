@@ -27,7 +27,11 @@ def _page(title: str, body: str) -> tuple[str, str, str]:
 
 
 def rows(n_pairs: int = 12, test_fraction: float = 0.5) -> list[dict]:
-    """Return ``2 * n_pairs`` page rows (malicious then benign for each pair)."""
+    """Return ``2 * n_pairs`` page rows (malicious then benign for each pair).
+
+    The first ``round(n_pairs * test_fraction)`` pairs are ``test`` rows and the rest ``train``, so a
+    local fixture exercises both partitions; the public Hub dataset ships ``train`` only.
+    """
     out = []
     for index in range(n_pairs):
         title, page_type, language = _TOPICS[index % len(_TOPICS)]

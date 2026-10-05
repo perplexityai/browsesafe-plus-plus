@@ -78,6 +78,21 @@ def test_missing_split_and_bad_view(source):
         bs.load(source=source, view="pdf")
 
 
+def test_default_split_is_train_and_private_test_is_explained(source, tmp_path):
+    assert bs.PRIVATE_SPLITS == frozenset({"test"})
+    assert bs.load(source=source).manifest["split"] == "train"
+    assert next(bs.iter_batches(source=source, spool_dir=tmp_path)).manifest["split"] == "train"
+    public = tmp_path / "public" / "data"
+    public.mkdir(parents=True)
+    pq.write_table(pa.Table.from_pylist([r for r in rows(4) if r["split"] == "train"]),
+                   public / "members-train-0000.parquet")
+    assert bs.load(source=public, split="train").manifest["loaded_pairs"] == 2
+    with pytest.raises(ValueError, match="private.*docs/leaderboard.md.*train"):
+        bs.load(source=public, split="test")
+    with pytest.raises(ValueError, match="absent"):
+        bs.load(source=public, split="dev")
+
+
 def test_incomplete_and_inconsistent_pairs(tmp_path):
     records = rows(4)
     records = [r for r in records if r["entry_id"] != "00001_benign"]  # pair 1 incomplete

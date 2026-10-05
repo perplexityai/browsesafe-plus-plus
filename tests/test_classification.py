@@ -99,7 +99,7 @@ def test_model_detector_with_mock_transport(source):
         assert request.headers["authorization"] == "Bearer test-key"
         page = body["messages"][1]["content"]
         verdict = 1 if "Assistant note" in page else 0
-        if "#2" in page:  # one malformed response
+        if "#8" in page:  # one malformed response (pair 8 is in the default train split)
             return httpx.Response(200, json={"choices": [{"message": {"content": "not json"}, "finish_reason": "stop"}]})
         return httpx.Response(200, json={
             "choices": [{"finish_reason": "tool_calls", "message": {"content": None, "tool_calls": [{

@@ -21,7 +21,8 @@ def predict(request: bs.DetectorInput) -> bs.Prediction:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source", help="Local shard directory; omit to download from the Hub")
-    parser.add_argument("--split", default="test")
+    parser.add_argument("--split", default="train",
+                        help="Partition; 'test' is private and only available in a local source or the internal dataset")
     parser.add_argument("--view", default="html", choices=("html", "markdown", "accessibility"))
     parser.add_argument("--n-pairs", type=int, default=100)
     parser.add_argument("--output", help="Optional new directory for the report")

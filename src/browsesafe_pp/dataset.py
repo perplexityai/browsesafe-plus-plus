@@ -32,6 +32,8 @@ VIEWS = {"html": "content_html", "markdown": "content_markdown", "accessibility"
 SCREENSHOT_VIEW = "screenshot"
 ALL_VIEWS = (*VIEWS, SCREENSHOT_VIEW)
 SHARD_PATTERN = "members-*.parquet"
+PRIVATE_SPLITS = frozenset({"test"})
+"""Partitions that the public dataset does not ship; SII evaluates them for the leaderboard."""
 FILTERS = frozenset({
     "language_page", "language_payload", "requires_action_tools", "attack_type",
     "injection_strategy", "register", "domain", "page_type", "goal_class", "risk_category",
@@ -273,7 +275,13 @@ def _prepare_load(*, task: str, split: str | None, split_column: str, view: str,
                     continue
                 index.setdefault(pair_id, {})[arm] = (file_index, position, row)
     if split is not None and split not in available_splits:
-        raise ValueError(f"Split {split!r} is absent; available splits: " + ", ".join(sorted(available_splits)))
+        available = ", ".join(sorted(available_splits))
+        if split in PRIVATE_SPLITS:
+            raise ValueError(
+                f"Split {split!r} is not in this source (available splits: {available}). The leaderboard "
+                f"{split} split is private: it is not distributed, and SII evaluates submitted detector and "
+                f"agent endpoints against it (see docs/leaderboard.md). Use split=\"train\" locally.")
+        raise ValueError(f"Split {split!r} is absent; available splits: {available}")
     eligible = []
     exclusions["invalid_pairs"] = len(invalid_pairs)
     for pair_id, arms in index.items():
@@ -377,7 +385,7 @@ def _iter_pages(files: list[Path], locations: dict[int, dict[int, tuple[str, str
                     offset += batch.num_rows
 
 
-def load(*, task: str = "detection", split: str | None = "test", view: str = "html",
+def load(*, task: str = "detection", split: str | None = "train", view: str = "html",
          source: str | Path | None = None, dataset: str | None = None,
          revision: str = DEFAULT_REVISION, token: str | bool | None = None,
          n_pairs: int | None = None, seed: int = 42, filters: Mapping[str, Any] | None = None,
@@ -386,7 +394,9 @@ def load(*, task: str = "detection", split: str | None = "test", view: str = "ht
 
     Args:
         task: ``"detection"`` (default) or ``"evidence"`` (inspect injection references).
-        split: ``"train"``, ``"test"`` (default) or ``None`` for every partition.
+        split: ``"train"`` (default), ``"test"`` or ``None`` for every partition. The ``test`` split is
+            private (:data:`PRIVATE_SPLITS`): it is only present in local sources that contain it and in
+            the internal dataset used for leaderboard evaluation.
         view: ``"html"``, ``"markdown"``, ``"accessibility"`` or ``"screenshot"``.
         source: a local directory of ``members-*.parquet`` shards (or its parent containing ``data/``).
             When omitted, the shards are downloaded from the Hugging Face Hub.
@@ -436,7 +446,7 @@ def _loaded_benchmark(pairs: list[Pair], manifest: dict[str, Any], exclusions: C
 
 def iter_batches(*, batch_pairs: int = 64, order: str = "selection",
                  max_spool_bytes: int = 10 * 1024**3, spool_dir: str | Path | None = None,
-                 task: str = "detection", split: str | None = "test", view: str = "html",
+                 task: str = "detection", split: str | None = "train", view: str = "html",
                  source: str | Path | None = None, dataset: str | None = None,
                  revision: str = DEFAULT_REVISION, token: str | bool | None = None,
                  n_pairs: int | None = None, seed: int = 42, filters: Mapping[str, Any] | None = None,
@@ -580,5 +590,5 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = ["ALL_VIEWS", "Benchmark", "DATASET_ENV", "DEFAULT_DATASET", "DEFAULT_REVISION", "DetectorInput",
-           "FILTERS", "Page", "Pair", "Prediction", "SCREENSHOT_VIEW", "VIEWS", "dataset_id", "describe",
+           "FILTERS", "PRIVATE_SPLITS", "Page", "Pair", "Prediction", "SCREENSHOT_VIEW", "VIEWS", "dataset_id", "describe",
            "iter_batches", "load", "screenshot_path"]
