@@ -66,10 +66,12 @@ def _outcome(result: Any) -> Outcome:
     return ("abstained" if result.injected is None else "valid"), result.injected, result.score
 
 
-def evaluate(benchmark: Benchmark, predict: Callable[[DetectorInput], Prediction | bool | None]) -> DetectionReport:
+def evaluate(benchmark: Benchmark, predict: Callable[[DetectorInput], Prediction | bool | None], *,
+             evaluator: str = "self", run_id: str | None = None) -> DetectionReport:
     """Call ``predict`` once per page (no retries) and score the results.
 
     Exceptions and invalid return values are recorded as failures, never as a label.
+    ``evaluator`` and ``run_id`` are recorded in the report manifest (see :func:`score`).
     """
     _check(benchmark, predict)
     outcomes: list[Outcome] = []
@@ -82,12 +84,13 @@ def evaluate(benchmark: Benchmark, predict: Callable[[DetectorInput], Prediction
             outcomes.append(_outcome(result))
         except Exception:
             outcomes.append(("error", None, None))
-    return score(benchmark, outcomes, {"protocol": "synchronous"})
+    return score(benchmark, outcomes, {"protocol": "synchronous"}, evaluator=evaluator, run_id=run_id)
 
 
 async def evaluate_async(benchmark: Benchmark,
                          predict: Callable[[DetectorInput], Awaitable[Prediction | bool | None] | Prediction | bool | None],
-                         *, concurrency: int = 8) -> DetectionReport:
+                         *, concurrency: int = 8, evaluator: str = "self",
+                         run_id: str | None = None) -> DetectionReport:
     """Like :func:`evaluate`, with up to ``concurrency`` calls in flight; results keep dataset order."""
     _check(benchmark, predict)
     if type(concurrency) is not int or concurrency < 1:
@@ -113,18 +116,28 @@ async def evaluate_async(benchmark: Benchmark,
             if not task.done():
                 task.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
-    return score(benchmark, outcomes, {"protocol": "asynchronous", "concurrency": concurrency})
+    return score(benchmark, outcomes, {"protocol": "asynchronous", "concurrency": concurrency},
+                 evaluator=evaluator, run_id=run_id)
 
 
-def score(benchmark: Benchmark, outcomes: list[Outcome], execution: dict[str, Any] | None = None) -> DetectionReport:
+def score(benchmark: Benchmark, outcomes: list[Outcome], execution: dict[str, Any] | None = None, *,
+          evaluator: str = "self", run_id: str | None = None) -> DetectionReport:
     """Turn per-page ``(status, injected, score)`` outcomes, in benchmark order, into a report.
 
     ``status`` is ``"valid"``, ``"abstained"``, ``"error"`` or ``"invalid_prediction"``.
     Ratios named ``*_valid`` use valid decisions only; ``coverage`` is the valid fraction;
     ``attack_recall_all`` and ``pair_correctness_all`` count failures as wrong.
+
+    The manifest records provenance: ``partition`` (the evaluated split, or ``"all"``),
+    ``evaluator`` (``"self"`` for local runs; ``"sii"`` for verified leaderboard runs) and
+    ``run_id`` (an identifier the evaluator assigns, or ``None``).
     """
     if len(outcomes) != len(benchmark):
         raise ValueError("outcomes must contain one entry per page")
+    if not isinstance(evaluator, str) or not evaluator.strip():
+        raise ValueError("evaluator must be a nonempty string")
+    if run_id is not None and not isinstance(run_id, str):
+        raise ValueError("run_id must be a string or None")
     results = iter(outcomes)
     records = []
     counts: Counter[str] = Counter()
@@ -171,7 +184,9 @@ def score(benchmark: Benchmark, outcomes: list[Outcome], execution: dict[str, An
                                 for status in ("valid", "abstained", "error", "invalid_prediction")}
                           for arm in ("malicious", "benign")},
     }
-    manifest = {**benchmark.manifest, "evaluation": {**(execution or {}), "attempts_per_page": 1, "retries": 0}}
+    manifest = {**benchmark.manifest, "partition": benchmark.manifest.get("split") or "all",
+                "evaluator": evaluator, "run_id": run_id,
+                "evaluation": {**(execution or {}), "attempts_per_page": 1, "retries": 0}}
     return DetectionReport(manifest=manifest, metrics=metrics, predictions=records)
 
 

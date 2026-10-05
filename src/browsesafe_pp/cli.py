@@ -50,6 +50,8 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--endpoint", help="Provider base URL (default: $BROWSESAFE_MODEL_ENDPOINT)")
     run.add_argument("--concurrency", type=int, default=8)
     run.add_argument("--max-tokens", type=int, default=4096)
+    run.add_argument("--evaluator", default="self", help="Who ran the evaluation, recorded in the manifest")
+    run.add_argument("--run-id", help="Optional run identifier, recorded in the manifest")
 
     args = parser.parse_args(argv)
     if args.command == "info":
@@ -63,9 +65,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.predict:
         predict = _callable(args.predict)
         if asyncio.iscoroutinefunction(predict):
-            report = asyncio.run(evaluate_async(benchmark, predict, concurrency=args.concurrency))
+            report = asyncio.run(evaluate_async(benchmark, predict, concurrency=args.concurrency,
+                                                evaluator=args.evaluator, run_id=args.run_id))
         else:
-            report = evaluate(benchmark, predict)
+            report = evaluate(benchmark, predict, evaluator=args.evaluator, run_id=args.run_id)
     else:
         from .providers import OpenAICompatible
 
@@ -73,7 +76,8 @@ def main(argv: list[str] | None = None) -> None:
             provider = OpenAICompatible(endpoint=args.endpoint, model=args.model)
             detector = ModelDetector(provider, max_tokens=args.max_tokens)
             try:
-                result = await evaluate_async(benchmark, detector, concurrency=args.concurrency)
+                result = await evaluate_async(benchmark, detector, concurrency=args.concurrency,
+                                              evaluator=args.evaluator, run_id=args.run_id)
             finally:
                 await provider.aclose()
             result.manifest["detector"] = detector.configuration

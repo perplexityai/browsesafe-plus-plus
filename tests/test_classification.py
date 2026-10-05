@@ -60,10 +60,27 @@ def test_report_save(source, tmp_path):
     report = bs.evaluate(bs.load(source=source, n_pairs=2), keyword)
     out = report.save(tmp_path / "run")
     assert json.loads((out / "metrics.json").read_text())["pairs"] == 2
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["partition"], manifest["evaluator"], manifest["run_id"]) == ("train", "self", None)
     lines = (out / "predictions.jsonl").read_text().splitlines()
     assert len(lines) == 4 and "content" not in json.loads(lines[0])
     with pytest.raises(FileExistsError):
         report.save(out)
+
+
+def test_report_provenance(source):
+    benchmark = bs.load(source=source, split=None, n_pairs=2)
+    report = bs.evaluate(benchmark, keyword, evaluator="sii", run_id="run-0001")
+    assert report.manifest["partition"] == "all"
+    assert (report.manifest["evaluator"], report.manifest["run_id"]) == ("sii", "run-0001")
+    report = asyncio.run(bs.evaluate_async(bs.load(source=source, split="test", n_pairs=1), keyword, run_id="r2"))
+    assert (report.manifest["partition"], report.manifest["evaluator"], report.manifest["run_id"]) == ("test", "self", "r2")
+    outcomes = [("valid", page.injected, None) for page in benchmark]
+    assert bs.evaluation.score(benchmark, outcomes).manifest["evaluator"] == "self"
+    with pytest.raises(ValueError):
+        bs.evaluation.score(benchmark, outcomes, evaluator="")
+    with pytest.raises(ValueError):
+        bs.evaluation.score(benchmark, outcomes, run_id=7)
 
 
 def test_evidence_task_rejected(source):
