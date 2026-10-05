@@ -4,7 +4,8 @@ A detector is any callable that takes a :class:`~browsesafe_pp.DetectorInput` an
 returns a :class:`~browsesafe_pp.Prediction`, a ``bool`` or ``None`` (abstain).
 :func:`evaluate` calls it synchronously; :func:`evaluate_async` overlaps awaitable
 calls with bounded concurrency. :class:`ModelDetector` is a ready-made async detector
-that asks an OpenAI-compatible model using the BrowseSafe 1.0 classification prompt.
+that asks an OpenAI-compatible model using the BrowseSafe 1.0 classification prompt;
+:class:`EndpointDetector` calls a detector served over HTTP (``browsesafe serve``).
 """
 from __future__ import annotations
 
@@ -12,10 +13,12 @@ import asyncio
 import inspect
 import json
 import math
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Mapping
+from urllib.parse import urlsplit
 
 from ..dataset import SCREENSHOT_VIEW, Benchmark, DetectorInput, Prediction
 from .prompts import ClassificationPrompt, get_classification_prompt
@@ -240,4 +243,92 @@ class ModelDetector:
         return Prediction(None if label == "abstain" else label == "yes")
 
 
-__all__ = ["DetectionReport", "ModelDetector", "evaluate", "evaluate_async", "score"]
+class EndpointDetector:
+    """Synchronous detector that calls a ``POST /predict`` endpoint (the ``browsesafe serve`` contract).
+
+    The request body is the :class:`DetectorInput` as JSON (``content``, ``view``, ``task``);
+    the response is ``{"injected": bool | null, "score": float | null}``. Requests that time
+    out or fail with a 5xx status are retried up to ``retries`` times with doubling backoff;
+    other failures raise and are scored as ``error``. A ``422`` response or an unparseable
+    body is scored as ``invalid_prediction``. Needs ``httpx`` (``browsesafe-pp[eval]``).
+
+    Args:
+        url: the ``/predict`` URL (a base URL without a path gets ``/predict`` appended).
+        token: optional bearer token, sent as ``Authorization: Bearer ...``.
+        timeout: per-request timeout in seconds.
+        retries: extra attempts after a timeout or 5xx response.
+        backoff: seconds to wait before the first retry; doubles with each further retry.
+        headers: extra request headers.
+        transport: optional ``httpx`` transport, for tests.
+    """
+
+    def __init__(self, url: str, *, token: str | None = None, timeout: float = 60, retries: int = 2,
+                 backoff: float = 0.5, headers: Mapping[str, str] | None = None, transport: Any = None) -> None:
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+            raise ValueError("url must be an HTTP(S) URL without embedded credentials")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be positive and finite")
+        if type(retries) is not int or retries < 0:
+            raise ValueError("retries must be a nonnegative integer")
+        if not math.isfinite(backoff) or backoff < 0:
+            raise ValueError("backoff must be nonnegative and finite")
+        self.url = url if parsed.path not in {"", "/"} else url.rstrip("/") + "/predict"
+        self._token = token
+        self.timeout, self.retries, self.backoff = timeout, retries, backoff
+        self.headers = dict(headers or {})
+        self._transport = transport
+        self._client: Any = None
+
+    @property
+    def configuration(self) -> dict[str, Any]:
+        """Recordable settings; the token is never included."""
+        parsed = urlsplit(self.url)
+        return {"adapter": "browsesafe_predict_endpoint", "endpoint": f"{parsed.scheme}://{parsed.netloc}{parsed.path}",
+                "timeout": self.timeout, "retries": self.retries, "backoff": self.backoff,
+                "authenticated": self._token is not None}
+
+    def _http(self):
+        try:
+            import httpx
+        except ImportError as exc:  # pragma: no cover - depends on the environment
+            raise ImportError("EndpointDetector needs httpx: pip install 'browsesafe-pp[eval]'") from exc
+        if self._client is None or self._client.is_closed:
+            headers = {**self.headers, **({"Authorization": f"Bearer {self._token}"} if self._token else {})}
+            self._client = httpx.Client(timeout=self.timeout, headers=headers, follow_redirects=False,
+                                        transport=self._transport)
+        return httpx, self._client
+
+    def close(self) -> None:
+        """Close pooled connections."""
+        if self._client is not None:
+            self._client.close()
+
+    def __call__(self, request: DetectorInput) -> Prediction | str:
+        httpx, client = self._http()
+        body = {"content": request.content, "view": request.view, "task": request.task}
+        for attempt in range(self.retries + 1):
+            try:
+                response = client.post(self.url, json=body)
+            except httpx.TimeoutException:
+                if attempt == self.retries:
+                    raise
+            else:
+                if response.status_code < 500:
+                    break
+                if attempt == self.retries:
+                    response.raise_for_status()
+            time.sleep(self.backoff * 2 ** attempt)
+        if response.status_code == 422:
+            return "invalid_prediction"
+        response.raise_for_status()
+        try:
+            result = response.json()
+        except ValueError:
+            return "invalid_prediction"
+        if not isinstance(result, dict):
+            return "invalid_prediction"
+        return Prediction(result.get("injected"), result.get("score"))
+
+
+__all__ = ["DetectionReport", "EndpointDetector", "ModelDetector", "evaluate", "evaluate_async", "score"]
