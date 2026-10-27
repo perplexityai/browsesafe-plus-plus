@@ -9,6 +9,8 @@ The loader reads in two passes. The first pass reads only the metadata columns
 of every shard, validates the pairs and selects a reproducible sample. The
 second pass materializes the selected view (HTML, Markdown, accessibility tree
 or screenshot path) for the selected pages only, in small Arrow batches.
+Screenshots embedded in the shards are written to a local cache file per page;
+shards without embedded images use the source's screenshot files.
 """
 
 from __future__ import annotations
@@ -29,7 +31,6 @@ DATASET_ENV = "BROWSESAFE_DATASET"
 DEFAULT_DATASET = "perplexity-ai/browsesafe-plus-plus"
 DEFAULT_REVISION = "main"
 DEFAULT_SPLIT = "train"
-LEADERBOARD_URL = "https://browsesafe.perplexity.ai/leaderboard/"
 VIEWS = {"html": "content_html", "markdown": "content_markdown", "accessibility": "content_ax_yaml"}
 SCREENSHOT_VIEW = "screenshot"
 ALL_VIEWS = (*VIEWS, SCREENSHOT_VIEW)
@@ -41,6 +42,7 @@ FILTERS = frozenset({
 })
 _ENTRY = re.compile(r"^(\d+)_(malicious|benign)$")
 _SHA = re.compile(r"[0-9a-f]{40}")
+_SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 def dataset_id(dataset: str | None = None) -> str:
@@ -130,19 +132,46 @@ class Benchmark:
                    "label": "yes" if page.injected else "no", "injected": page.injected}
 
 
+def _hub_call(repo_id: str, function, /, **kwargs):
+    """Call the Hub once; a refused access (gated, 401 or 403) becomes a PermissionError that says what to do."""
+    from huggingface_hub.utils import GatedRepoError, HfHubHTTPError
+
+    try:
+        return function(**kwargs)
+    except HfHubHTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if not isinstance(exc, GatedRepoError) and status not in (401, 403):
+            raise
+        raise PermissionError(
+            f"The Hugging Face Hub refused access to the gated dataset {repo_id}. Request access at "
+            f"https://huggingface.co/datasets/{repo_id} (one request covers the training split and the test "
+            "inputs), then log in with `hf auth login` or set HF_TOKEN.") from exc
+
+
+def _resolve_revision(repo_id: str, revision: str, token: str | bool | None, offline: bool) -> str:
+    """The commit of ``revision`` (unchanged when offline or already a commit)."""
+    from huggingface_hub import HfApi, constants
+
+    if offline or constants.HF_HUB_OFFLINE or _SHA.fullmatch(revision):
+        return revision
+    return _hub_call(repo_id, HfApi(token=token).dataset_info, repo_id=repo_id, revision=revision).sha
+
+
 def _files(source: str | Path | None, dataset: str | None, revision: str, token: str | bool | None,
-           offline: bool, view: str) -> tuple[list[Path], dict[str, Any], str]:
+           offline: bool, subdir: str = "", pattern: str = SHARD_PATTERN) -> tuple[list[Path], dict[str, Any], str]:
+    """Shards matching ``<subdir>/data/<pattern>`` (training: ``data/members-*``; test inputs: ``test/data/test-*``).
+
+    Screenshot files are never downloaded here; see :func:`_screenshot_source`.
+    """
+    prefix = f"{subdir}/" if subdir else ""
     if source is None:
-        from huggingface_hub import HfApi, constants, snapshot_download
+        from huggingface_hub import constants, snapshot_download
 
         repo_id = dataset_id(dataset)
         offline = offline or bool(constants.HF_HUB_OFFLINE)
-        resolved = revision
-        if not offline and not _SHA.fullmatch(revision):
-            resolved = HfApi(token=token).dataset_info(repo_id, revision=revision).sha
-        patterns = [f"data/{SHARD_PATTERN}"] + (["screenshots/**"] if view == SCREENSHOT_VIEW else [])
-        root = Path(snapshot_download(repo_id=repo_id, repo_type="dataset", revision=resolved,
-                                      token=token, local_files_only=offline, allow_patterns=patterns))
+        resolved = _resolve_revision(repo_id, revision, token, offline)
+        root = Path(_hub_call(repo_id, snapshot_download, repo_id=repo_id, repo_type="dataset", revision=resolved,
+                              token=token, local_files_only=offline, allow_patterns=[f"{prefix}data/{pattern}"]))
         commit = root.name if _SHA.fullmatch(root.name) else None
         source_info = {"source_kind": "huggingface", "dataset": repo_id, "requested_revision": revision,
                       "revision": commit, "revision_pinned": bool(_SHA.fullmatch(revision))}
@@ -153,10 +182,11 @@ def _files(source: str | Path | None, dataset: str | None, revision: str, token:
             raise FileNotFoundError(f"Local source is not a directory: {root}")
         source_info = {"source_kind": "local", "revision": None}
         identity = ""
-    data = root / "data" if (root / "data").is_dir() else root
-    files = sorted(data.glob(SHARD_PATTERN))
+    # A local source may be the dataset root, its <subdir>/ directory or the shard directory itself.
+    data = next(path for path in (root / prefix / "data", root / "data", root) if path.is_dir())
+    files = sorted(data.glob(pattern))
     if not files:
-        raise FileNotFoundError(f"No {SHARD_PATTERN} shards found under {data}")
+        raise FileNotFoundError(f"No {prefix}data/{pattern} shards found under {root}")
     if source is not None:
         hashes = []
         for path in files:
@@ -233,7 +263,7 @@ def _prepare_load(*, task: str, split: str | None, split_column: str, view: str,
     filters = {key: sorted(value) if isinstance(value, (set, frozenset)) else value
                for key, value in dict(filters or {}).items()}
     _check_arguments(task, view, split, n_pairs, seed, filters)
-    files, source_info, identity = _files(source, dataset, revision, token, offline, view)
+    files, source_info, identity = _files(source, dataset, revision, token, offline)
     index: dict[str, dict[str, tuple[int, int, dict[str, Any]]]] = {}
     invalid_pairs: set[str] = set()
     exclusions: Counter[str] = Counter()
@@ -276,10 +306,12 @@ def _prepare_load(*, task: str, split: str | None, split_column: str, view: str,
                 index.setdefault(pair_id, {})[arm] = (file_index, position, row)
     if split is not None and split not in available_splits:
         if split == "test" and source is None:
+            from .test_inputs import LEADERBOARD_SPACE
             raise ValueError(
-                "The BrowseSafe++ test split is reserved for the leaderboard and is not on the Hub; "
-                f"a submission endpoint is coming soon ({LEADERBOARD_URL}). Load split=\"train\" "
-                "from the Hub, or pass source= for a local copy that contains a test partition.")
+                "The BrowseSafe++ test split is reserved for the leaderboard and its labels are not public. "
+                "Load the label-free test pages with browsesafe_pp.load_test_inputs() (or run `browsesafe "
+                f"predict`) and upload the predictions to the leaderboard Space ({LEADERBOARD_SPACE}). Load "
+                "split=\"train\" from the Hub, or pass source= for a local copy that contains a test partition.")
         raise ValueError(f"Split {split!r} is absent; available splits: " + ", ".join(sorted(available_splits)))
     eligible = []
     exclusions["invalid_pairs"] = len(invalid_pairs)
@@ -316,11 +348,92 @@ def _prepare_load(*, task: str, split: str | None, split_column: str, view: str,
 
 
 def screenshot_path(root: Path, entry_id: str) -> Path | None:
-    """A page's capture: flat ``<root>/<entry_id>.jpg`` or bucketed ``<root>/<first two digits>/<entry_id>.jpg``."""
+    """A page's capture: flat ``<root>/<entry_id>.jpg`` or bucketed ``<root>/<first two characters>/<entry_id>.jpg``."""
     for candidate in (root / f"{entry_id}.jpg", root / entry_id[:2] / f"{entry_id}.jpg"):
         if candidate.is_file():
             return candidate
     return None
+
+
+def _screenshot_root(files: list[Path]) -> Path:
+    """The ``screenshots/`` directory beside the ``data/`` directory of ``files``."""
+    data = files[0].parent
+    screenshots = (data.parent if data.name == "data" else data) / "screenshots"
+    if not screenshots.is_dir():
+        raise FileNotFoundError("This source has no screenshots/ directory")
+    return screenshots
+
+
+class _Screenshots:
+    """Local JPEG paths for the selected pages.
+
+    A ``screenshot`` cell with bytes (dataset v0.2 and later) is written once to
+    ``<cache>/<entry_id>.jpg``; an existing file of the same size is reused. A page without
+    embedded bytes uses the source's screenshot files, which ``files_root`` locates (and, for
+    the Hub, downloads) the first time such a page is read.
+    """
+
+    def __init__(self, cache: Path, files_root):
+        self.cache = cache
+        self._files_root = files_root
+        self._root: Path | None = None
+
+    def path(self, entry_id: str, cell: Any) -> Path | None:
+        data = cell.get("bytes") if isinstance(cell, Mapping) else None
+        if data:
+            if not _SAFE_NAME.fullmatch(entry_id):
+                raise ValueError(f"Page id {entry_id!r} cannot name a cache file")
+            target = self.cache / f"{entry_id}.jpg"
+            if not (target.is_file() and target.stat().st_size == len(data)):
+                self.cache.mkdir(parents=True, exist_ok=True)
+                partial = target.with_name(f".{target.name}.{os.getpid()}.partial")
+                partial.write_bytes(data)
+                os.replace(partial, target)
+            return target
+        if self._root is None:
+            self._root = self._files_root()
+        return screenshot_path(self._root, entry_id)
+
+
+def _screenshot_source(files: list[Path], info: Mapping[str, Any], source: str | Path | None,
+                       token: str | bool | None, offline: bool, subdir: str = "") -> _Screenshots:
+    """The screenshot cache under ``$HF_HOME/browsesafe_pp/screenshots/``, keyed by the dataset revision
+    (local sources: by a hash of the source path), with the source's screenshot files as the fallback."""
+    from huggingface_hub import constants
+
+    base = Path(constants.HF_HOME) / "browsesafe_pp" / "screenshots"
+    if source is not None:
+        location = str(Path(source).expanduser().resolve())
+        return _Screenshots(base / f"local-{hashlib.sha256(location.encode()).hexdigest()[:16]}",
+                            lambda: _screenshot_root(files))
+    repo_id = info.get("dataset") or dataset_id(None)
+    revision = info.get("revision") or info.get("requested_revision") or DEFAULT_REVISION
+    key = revision if _SHA.fullmatch(revision) else hashlib.sha256(revision.encode()).hexdigest()[:16]
+    prefix = f"{subdir}/" if subdir else ""
+
+    def download() -> Path:
+        from huggingface_hub import snapshot_download
+
+        root = Path(_hub_call(repo_id, snapshot_download, repo_id=repo_id, repo_type="dataset", revision=revision,
+                              token=token, local_files_only=offline or bool(constants.HF_HUB_OFFLINE),
+                              allow_patterns=[f"{prefix}screenshots/**"]))
+        if not (root / prefix / "screenshots").is_dir():
+            raise FileNotFoundError("This source has no screenshots/ directory")
+        return root / prefix / "screenshots"
+
+    return _Screenshots(base / repo_id.replace("/", "--") / key, download)
+
+
+def _screenshot_columns(schema, view: str) -> list[str]:
+    """The ``screenshot`` column to read: the whole cell for the screenshot view, else only its path."""
+    import pyarrow as pa
+
+    if "screenshot" not in schema.names:
+        return []
+    kind = schema.field("screenshot").type
+    if view != SCREENSHOT_VIEW and pa.types.is_struct(kind) and kind.get_field_index("path") >= 0:
+        return ["screenshot.path"]
+    return ["screenshot"]
 
 
 def _readable_image(path: Path) -> bool:
@@ -337,21 +450,17 @@ def _readable_image(path: Path) -> bool:
 
 
 def _iter_pages(files: list[Path], locations: dict[int, dict[int, tuple[str, str]]],
-                view: str, exclusions: Counter[str]) -> Iterator[tuple[str, str, Page]]:
+                view: str, exclusions: Counter[str], screenshots: _Screenshots | None = None
+                ) -> Iterator[tuple[str, str, Page]]:
     import pyarrow.parquet as pq
 
     content_column = VIEWS.get(view)
-    screenshots = None
-    if view == SCREENSHOT_VIEW:
-        data = files[0].parent
-        screenshots = (data.parent if data.name == "data" else data) / "screenshots"
-        if not screenshots.is_dir():
-            raise FileNotFoundError("This source has no screenshots/ directory")
     for file_index in sorted(locations):
         positions = locations[file_index]
         with pq.ParquetFile(files[file_index]) as parquet:
-            columns = [name for name in parquet.schema_arrow.names
-                       if not name.startswith("content_") or name == content_column]
+            columns = [name for name in parquet.schema_arrow.names if name != "screenshot"
+                       and (not name.startswith("content_") or name == content_column)]
+            columns += _screenshot_columns(parquet.schema_arrow, view)
             offset = 0
             for group_index in range(parquet.num_row_groups):
                 group_size = parquet.metadata.row_group(group_index).num_rows
@@ -364,8 +473,11 @@ def _iter_pages(files: list[Path], locations: dict[int, dict[int, tuple[str, str
                             continue
                         row = batch.slice(i, 1).to_pylist()[0]
                         pair_id, arm = positions[offset + i]
-                        if screenshots is not None:
-                            shot = screenshot_path(screenshots, row["entry_id"])
+                        cell = row.get("screenshot")
+                        if isinstance(cell, dict) and "bytes" in cell:
+                            row["screenshot"] = {"path": cell.get("path")}  # metadata keeps the reference only
+                        if view == SCREENSHOT_VIEW:
+                            shot = screenshots.path(row["entry_id"], cell)
                             if shot is None or not _readable_image(shot):
                                 exclusions["missing_view_members"] += 1
                                 continue
@@ -393,14 +505,16 @@ def load(*, task: str = "detection", split: str | None = DEFAULT_SPLIT, view: st
 
     Args:
         task: ``"detection"`` (default) or ``"evidence"`` (inspect injection references).
-        split: ``"train"`` (default), ``"test"`` or ``None`` for every partition. The public
-            dataset contains ``"train"``; the test split is reserved for the leaderboard.
+        split: ``"train"`` (default), ``"test"`` or ``None`` for every partition. The Hub
+            dataset's labelled pairs are ``"train"``; the test split is reserved for the leaderboard
+            (its label-free pages load with :func:`~browsesafe_pp.load_test_inputs`).
         view: ``"html"``, ``"markdown"``, ``"accessibility"`` or ``"screenshot"``.
         source: a local directory of ``members-*.parquet`` shards (or its parent containing ``data/``).
-            When omitted, the shards are downloaded from the Hugging Face Hub.
-        dataset: Hugging Face dataset id; defaults to ``$BROWSESAFE_DATASET``.
+            When omitted, the shards are downloaded from the gated Hugging Face dataset: request
+            access on its page and log in first.
+        dataset: Hugging Face dataset id; defaults to ``$BROWSESAFE_DATASET``, else :data:`DEFAULT_DATASET`.
         revision: branch, tag or commit of the dataset. Pin a 40-character commit for comparable runs.
-        token: Hugging Face access token, if your environment needs one.
+        token: Hugging Face access token; by default the token of ``hf auth login`` or ``$HF_TOKEN``.
         n_pairs: maximum number of pairs; ``None`` loads every eligible pair.
         seed: sampling seed. The same source, seed and arguments select the same pairs.
         filters: constraints on the malicious member's metadata. List-valued fields (languages)
@@ -414,8 +528,9 @@ def load(*, task: str = "detection", split: str | None = DEFAULT_SPLIT, view: st
     files, locations, manifest, exclusions = _prepare_load(
         task=task, split=split, split_column=split_column, view=view, source=source, dataset=dataset,
         revision=revision, token=token, n_pairs=n_pairs, seed=seed, filters=filters, offline=offline)
+    screenshots = _screenshot_source(files, manifest, source, token, offline) if view == SCREENSHOT_VIEW else None
     loaded: dict[str, dict[str, Page]] = {}
-    for pair_id, arm, page in _iter_pages(files, locations, view, exclusions):
+    for pair_id, arm, page in _iter_pages(files, locations, view, exclusions, screenshots):
         loaded.setdefault(pair_id, {})[arm] = page
     pairs = []
     for pair_id in manifest["selected_pair_ids"]:
@@ -467,6 +582,7 @@ def iter_batches(*, batch_pairs: int = 64, order: str = "selection",
     files, locations, manifest, exclusions = _prepare_load(
         task=task, split=split, split_column=split_column, view=view, source=source, dataset=dataset,
         revision=revision, token=token, n_pairs=n_pairs, seed=seed, filters=filters, offline=offline)
+    screenshots = _screenshot_source(files, manifest, source, token, offline) if view == SCREENSHOT_VIEW else None
     temporary = tempfile.TemporaryDirectory(prefix="browsesafe-pp-", dir=spool_dir)
     try:
         connection = sqlite3.connect(Path(temporary.name) / "pages.sqlite3")
@@ -490,7 +606,7 @@ def iter_batches(*, batch_pairs: int = 64, order: str = "selection",
             def pair_batches() -> Iterator[list[Pair]]:
                 nonlocal total_loaded
                 pairs: list[Pair] = []
-                for pair_id, arm, page in _iter_pages(files, locations, view, exclusions):
+                for pair_id, arm, page in _iter_pages(files, locations, view, exclusions, screenshots):
                     raw = json.dumps(asdict(page), ensure_ascii=False)
                     if shutil.disk_usage(temporary.name).free < 2 * len(raw.encode()) + 65536:
                         raise OSError("Insufficient free disk space for the page spool")
@@ -550,7 +666,7 @@ def describe(*, source: str | Path | None = None, dataset: str | None = None,
     """Count pages, pairs, splits and page types from the metadata columns only."""
     import pyarrow.parquet as pq
 
-    files, source_info, _ = _files(source, dataset, revision, token, offline, "html")
+    files, source_info, _ = _files(source, dataset, revision, token, offline)
     counts: dict[str, Counter[str]] = {key: Counter() for key in ("split", "page_type", "label")}
     views: Counter[str] = Counter()
     pages = 0

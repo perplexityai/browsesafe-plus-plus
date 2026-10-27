@@ -94,7 +94,7 @@ browsesafe evaluate --source ./fixture --predict examples.detection_baseline:pre
 | Option | Default | Meaning |
 |---|---|---|
 | `--source` / `--dataset` / `--revision` / `--offline` | Hub, `$BROWSESAFE_DATASET`, `main` | Where to load from |
-| `--split` | `train` | Partition, or `all`; the public dataset has `train` only |
+| `--split` | `train` | Partition, or `all`; the Hub dataset's labelled pairs are `train` |
 | `--view` | `html` | `html`, `markdown`, `accessibility`, `screenshot` |
 | `--n-pairs` | `100` | Number of pairs; `0` for all |
 | `--seed` | `42` | Sampling seed |

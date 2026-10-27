@@ -6,11 +6,14 @@ BrowseSafe++ measures whether a detector or an agent can tell a web page that ca
 2. **Evaluate detectors**: score any classifier, or an OpenAI-compatible model with the BrowseSafe 1.0 prompt. → [Classification](classification.md)
 3. **Run adaptive attacks**: budgeted campaigns against your own agent, seeded with real injections. → [Adaptive attacks](adaptive.md)
 
+To score a detector on the test split, run it on the label-free test pages and upload the predictions to the leaderboard Space. → [Submitting to the leaderboard](leaderboard.md)
+
 | Page | Contents |
 |---|---|
 | [Installation](installation.md) | Requirements, extras, offline fixture |
 | [Data](data.md) | Schema, fields, splits, views, screenshots, filters, batching |
 | [Classification](classification.md) | Prompt, detector contract, metrics, CLI and Python |
+| [Leaderboard submissions](leaderboard.md) | Test-input access, `browsesafe predict`, file format, limits, publication |
 | [Adaptive attacks](adaptive.md) | Contexts, seeds, policies, budgets, judges, reports; worked example |
 | [Providers](providers.md) | OpenAI-compatible endpoints and environment variables |
 | [API reference](api.md) | Public classes and functions |

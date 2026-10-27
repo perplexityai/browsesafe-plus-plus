@@ -40,6 +40,20 @@ from browsesafe_pp import adaptive as a
 | `bs.evaluation.score` | `score(benchmark, outcomes, execution=None) -> DetectionReport` | Score precomputed per-page `(status, injected, score)` outcomes in benchmark order. |
 | `DetectionReport` | `manifest`, `metrics`, `predictions`; `save(path)` | `save` writes `manifest.json`, `metrics.json` and `predictions.jsonl` (no page text) to a new directory. |
 
+## Leaderboard submissions
+
+See [Submitting to the leaderboard](leaderboard.md).
+
+| Name | Signature | Description |
+|---|---|---|
+| `bs.load_test_inputs` | `load_test_inputs(*, view="html", source=None, dataset=None, revision="main", token=None, offline=False, limit=None) -> tuple[TestPage, ...]` | The label-free test pages (under `test/`) in one view, in dataset order. `dataset` defaults to `$BROWSESAFE_DATASET`, else `bs.DEFAULT_DATASET`; `limit` takes the first pages for a trial run. |
+| `bs.predict_test` | `predict_test(pages, predict, *, concurrency=1) -> list[dict]` | Call a detector once per page and return records in the leaderboard format. Abstentions write `injected: None`; exceptions and invalid returns leave the page out. |
+| `bs.predict_test_async` | `predict_test_async(pages, predict, *, concurrency=8) -> list[dict]` | The same, awaited inside a running event loop. |
+| `bs.write_predictions` | `write_predictions(path, records) -> Path` | Validate the records (one per `id` and view) and write them as JSON Lines to a new file. |
+| `bs.TestPage` | `id`, `content`, `view`, `task`; `model_input` | One test page; `id` is the row's opaque `entry_id`. No label, arm or pair; `model_input` is task-free. |
+| `bs.TEST_DATASET`, `bs.LEADERBOARD_SPACE` | constants | The dataset id of the test inputs (equal to `bs.DEFAULT_DATASET`: one repository for both splits) and the leaderboard Space URL. |
+| `browsesafe_pp.testing.write_test_fixture` | `write_test_fixture(directory, n_pairs=6) -> Path` | An offline fixture in the test-input layout, with a `labels.parquet` for local checks. |
+
 ## Providers
 
 | Name | Description |
@@ -105,6 +119,9 @@ browsesafe evaluate [--source DIR] [--dataset ID] [--revision REV] [--offline]
                     [--n-pairs N] [--seed S] [--output DIR]
                     (--predict MODULE:FUNCTION | --model MODEL)
                     [--endpoint URL] [--concurrency N] [--max-tokens N]
+browsesafe predict --predict MODULE:FUNCTION --view VIEW [--view VIEW ...] --output FILE
+                   [--source DIR] [--dataset ID] [--revision REV] [--offline]
+                   [--limit N] [--concurrency N]
 ```
 
-`python -m browsesafe_pp.testing DIR` writes a small offline fixture in the dataset's format.
+`python -m browsesafe_pp.testing DIR` writes a small offline fixture in the dataset's format; add `--test-inputs` for the label-free test-input layout.

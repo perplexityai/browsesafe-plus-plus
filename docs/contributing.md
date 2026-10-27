@@ -21,7 +21,7 @@ pytest                     # the suite runs offline in a few seconds
 
 ## Proposing changes
 
-Open an issue that describes the problem or the change you have in mind, with a minimal example where possible. Changes must keep `pytest` passing on Python 3.10 and newer and come with tests and documentation for anything user-visible.
+Open an issue that describes the problem or the change you have in mind, with a minimal example where possible. Please note that we are not planning to fix bugs, as this codebase is meant as a research artifact (see the warning in the [README](../README.md)). Changes must keep `pytest` passing on Python 3.10 and newer and come with tests and documentation for anything user-visible.
 
 ## Reporting issues with the data
 

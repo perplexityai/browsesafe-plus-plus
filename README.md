@@ -2,9 +2,20 @@
 
 <img src="docs/assets/wordmark.svg" alt="BrowseSafe++" width="329">
 
+**[Benchmarking Prompt Injection Detection Across Web Contexts, Languages, and Browser Views](https://arxiv.org/abs/2610.17457)**
+
+Yuetian Chen<sup>\*1,2</sup>, Kaiyuan Zhang<sup>\*1,3</sup>, Yuntao Du<sup>1,2</sup>, Thomas Li<sup>1</sup>, Mark Tenenholtz<sup>1</sup>, Kyle Polley<sup>1</sup>, Jerry Ma<sup>1</sup>, Denis Yarats<sup>1</sup>, Ninghui Li<sup>1,2</sup>
+
+<sup>1</sup>Perplexity, <sup>2</sup>Purdue University, and <sup>3</sup>Rutgers University &nbsp;·&nbsp; <sup>\*</sup>Equal contribution
+
 [Paper](https://arxiv.org/abs/2610.17457) · [Documentation](docs/index.md) · [Benchmark](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus) · [Classification](docs/classification.md) · [Adaptive attacks](docs/adaptive.md) · [Website](https://browsesafe.perplexity.ai/) · [Leaderboard](https://browsesafe.perplexity.ai/leaderboard/)
 
 </div>
+
+> [!WARNING]
+> This is a research artifact released to reproduce the results in our paper. A detector's score on the benchmark is not a security guarantee. The benchmark contains real prompt injections, most of them observed on production web pages: do not open its pages in an agent that has tools, credentials or access to real accounts.
+>
+> This is **not** a Perplexity product, and we are not planning to provide support for and/or maintain this codebase.
 
 BrowseSafe++ is a benchmark for detecting indirect prompt injections in web pages. Each entry pairs an injected page with a control page that differs only by the injection.
 
@@ -46,14 +57,14 @@ report = bs.evaluate(benchmark, my_detector)
 print(report.metrics["f1_valid"], report.metrics["pair_correctness_all"])
 ```
 
-To use the published data, omit `source=`. The SDK loads the training split of [perplexity-ai/browsesafe-plus-plus](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus) by default. You can also pass a local directory of Parquet shards. See [dataset loading](docs/data.md).
+To use the published data, omit `source=`: the SDK loads the training split of [perplexity-ai/browsesafe-plus-plus](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus). The dataset is gated: request access once on its page, accept the terms and log in with `hf auth login` ([dataset access](docs/installation.md#dataset-access)). You can also pass a local directory of Parquet shards; see [dataset loading](docs/data.md).
 
 ## Dataset
 
 | | |
 |---|---|
 | Size | **38,675 attack/control pairs (77,350 pages)** |
-| Splits | **train 29,500 pairs** (on Hugging Face) / **test 9,175 pairs** (reserved for the leaderboard); both pages of a pair share a split, and no injection text appears in both splits |
+| Splits | **train 29,500 pairs** (labelled) / **test 9,175 pairs** (one label-free page per pair, scored on the [leaderboard](docs/leaderboard.md)); both pages of a pair share a split, and no injection text appears in both splits |
 | Views | HTML, Markdown, accessibility tree, full-page screenshot |
 | Taxonomy | **12 page types, 24 attack types, 18 placements, 6 attacker goals**, plus page register, linguistic style and risk category |
 | Languages | **80 languages** (ISO 639-1 codes) across page text and injection text |
@@ -77,7 +88,7 @@ attack_image = Image.open(pair.malicious.content)
 control_image = Image.open(pair.benign.content)
 ```
 
-For this view, `Page.content` is a local JPEG path. The first Hub load downloads the full screenshot collection (about 45 GB), even when `n_pairs` is small; later loads reuse the cache. See [screenshots](docs/data.md#screenshots) to download a single image or use a local copy. Model evaluation uses up to eight 1,536-pixel image segments per page and reports any omitted height.
+For this view, `Page.content` is a local JPEG path. See [screenshots](docs/data.md#screenshots) to download a single image or use a local copy. Model evaluation uses up to eight 1,536-pixel image segments per page.
 
 ## Evaluate a model
 
@@ -142,11 +153,17 @@ Each accepts `--source ./fixture` to run against the bundled synthetic data.
 
 ## Documentation
 
-[Overview](docs/index.md) · [Installation](docs/installation.md) · [Data](docs/data.md) · [Classification](docs/classification.md) · [Adaptive attacks](docs/adaptive.md) · [Providers](docs/providers.md) · [API reference](docs/api.md) · [Contributing](docs/contributing.md) · [Changelog](CHANGELOG.md)
+[Overview](docs/index.md) · [Installation](docs/installation.md) · [Data](docs/data.md) · [Classification](docs/classification.md) · [Leaderboard submissions](docs/leaderboard.md) · [Adaptive attacks](docs/adaptive.md) · [Providers](docs/providers.md) · [API reference](docs/api.md) · [Contributing](docs/contributing.md) · [Changelog](CHANGELOG.md)
 
 ## Test split and leaderboard
 
-The Hugging Face dataset contains the training split. The 9,175-pair test split is reserved for the [leaderboard](https://browsesafe.perplexity.ai/leaderboard/), and a submission endpoint for it is coming soon; until then, `bs.load(split="test")` against the Hub raises an error that says so.
+The dataset has one configuration with a `train` and a `test` split. The test split holds one label-free page of each of the 9,175 test pairs, with an opaque `entry_id` and empty labels and annotations, and is scored on the [leaderboard](https://browsesafe.perplexity.ai/leaderboard/). Run your detector on it locally:
+
+```bash
+browsesafe predict --predict my_detector:predict --view html --view markdown --output predictions.jsonl
+```
+
+Then upload `predictions.jsonl` to the [leaderboard Space](https://huggingface.co/spaces/perplexity-ai/browsesafe-plus-plus-leaderboard), which returns aggregate scores for each view. The file format, the limits and the publication rules are in [Submitting to the leaderboard](docs/leaderboard.md).
 
 ## Citation
 
@@ -166,4 +183,4 @@ BrowseSafe++ builds on BrowseSafe ([arXiv:2511.20597](https://arxiv.org/abs/2511
 
 ## License
 
-The SDK is released under the [MIT License](LICENSE). The dataset is released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see the [dataset card](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus).
+The SDK is released under the [MIT License](LICENSE). In the [dataset](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus), the training split is released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and the test inputs under an evaluation-only licence; both are in `LICENSE.md` in the dataset repository.

@@ -43,14 +43,15 @@ from browsesafe_pp.testing import write_fixture
 write_fixture("./fixture", n_pairs=12)
 ```
 
-The fixture pages are fictional and their "injections" are harmless marker sentences.
+The fixture pages are fictional and their "injections" are harmless marker sentences. `python -m browsesafe_pp.testing ./test-fixture --test-inputs` (or `write_test_fixture`) writes the same pages in the label-free layout of the leaderboard's test inputs, plus a `labels.parquet` for local checks.
 
-## The real dataset
+## Dataset access
 
-The SDK defaults to [perplexity-ai/browsesafe-plus-plus](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus), which holds the training split (29,500 pairs). The test split (9,175 pairs) is reserved for the [leaderboard](https://browsesafe.perplexity.ai/leaderboard/), and a submission endpoint for it is coming soon. To select another repository, set:
+The SDK defaults to [perplexity-ai/browsesafe-plus-plus](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus). It has one configuration with a `train` split (29,500 labelled pairs) and a `test` split, the label-free inputs for the [leaderboard](leaderboard.md) (one page from each of 9,175 pairs, under `test/`). The dataset is gated, and one request covers both:
 
-```bash
-export BROWSESAFE_DATASET=perplexity-ai/browsesafe-plus-plus
-```
+1. Log in to Hugging Face, open the dataset page, fill in the request form (name, affiliation, intended use) and accept the terms. Access is granted automatically.
+2. Authenticate on the machine that loads the data: `hf auth login`, the `HF_TOKEN` environment variable, or `token=` in Python.
 
-or download the shards and use `source="/path/to/export"`. The first Hub load downloads all `data/members-*.parquet` shards to the standard Hugging Face cache; later loads reuse them (`offline=True` or `HF_HUB_OFFLINE=1` skips the network entirely).
+Without access, a Hub load raises `PermissionError` with these steps. The terms are in `LICENSE.md` in the dataset repository: the training split is released under CC BY 4.0, and the test inputs are for evaluation only ([summary](leaderboard.md#1-access-and-licence)).
+
+Each load downloads only its split's shards to the standard Hugging Face cache: `data/members-*.parquet` for `bs.load`, `test/data/test-*.parquet` for `bs.load_test_inputs`. Later loads reuse them (`offline=True` or `HF_HUB_OFFLINE=1` skips the network entirely). To read another repository, set `BROWSESAFE_DATASET=<id>`, or download the files and use `source="/path/to/export"`.

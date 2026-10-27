@@ -9,11 +9,13 @@ A BrowseSafe++ source is a directory of Parquet shards, one row per page:
   data/members-train-0000.parquet
   ...
   screenshots/<first two digits>/<entry_id>.jpg     # optional; flat screenshots/<entry_id>.jpg also works
+  test/data/test-0000.parquet                        # label-free test inputs, read by bs.load_test_inputs
+  test/screenshots/<entry_id[:2]>/<entry_id>.jpg
 ```
 
 `bs.load(source=...)` accepts either `<source>` or `<source>/data`. Without `source=`, the same layout is downloaded from the Hugging Face dataset named by `BROWSESAFE_DATASET` (default `perplexity-ai/browsesafe-plus-plus`) at `revision=` (default `main`). Pin a 40-character commit for comparable runs; the manifest records the resolved commit and `revision_pinned`.
 
-The Hugging Face dataset contains the `train` split. The `test` split is reserved for the [leaderboard](https://browsesafe.perplexity.ai/leaderboard/), and a submission endpoint for it is coming soon; asking the Hub for `split="test"` raises an error that says so. A local `source=` that contains a `test` partition loads normally. The `screenshot` column is an image feature that displays each row's JPEG in the dataset viewer and decodes to a PIL image with `datasets`. Image files stay separate from the text shards, so text-only SDK loads do not download the images. Install `datasets` and `Pillow` for this example:
+The Hugging Face dataset is gated ([access](installation.md#dataset-access)); its training split is CC BY 4.0 and its test inputs are under an evaluation-only licence (`LICENSE.md` in the dataset repository). It has one configuration with two splits: `train` holds the labelled pairs, and `test` (files under `test/`) holds the label-free inputs for [leaderboard submissions](leaderboard.md). Test rows use the training columns: `entry_id` is an opaque 12-character id, `split` is `test`, the benign task, screenshot and text views are filled, and labels, title and annotations are empty. `bs.load_test_inputs` reads them. The `screenshot` column holds each page's JPEG, which the dataset viewer displays and `datasets` decodes to a PIL image; the same images are under `screenshots/` and `test/screenshots/`. Install `datasets` and `Pillow` for this example:
 
 ```python
 from datasets import load_dataset
@@ -21,6 +23,7 @@ from datasets import load_dataset
 pages = load_dataset("perplexity-ai/browsesafe-plus-plus", split="train", streaming=True)
 page = next(iter(pages))
 image = page["screenshot"]
+test_pages = load_dataset("perplexity-ai/browsesafe-plus-plus", split="test", streaming=True)   # label-free
 ```
 
 ## Pairs and splits
@@ -28,8 +31,8 @@ image = page["screenshot"]
 | | |
 |---|---|
 | Pairs | 38,675 (77,350 pages) |
-| Train | 29,500 pairs (59,000 pages), on Hugging Face |
-| Test | 9,175 pairs (18,350 pages), reserved for the leaderboard |
+| Train | 29,500 pairs (59,000 pages), labelled |
+| Test | 9,175 pairs; one label-free page per pair (9,175 pages) under `test/` for [leaderboard submissions](leaderboard.md) |
 
 Rows `NNNNN_malicious` (`arm="attack"`, `label="yes"`) and `NNNNN_benign` (`arm="control"`, `label="no"`) form one pair. The control is the attacked page with the injection removed. Both members always share a split, and no injection text (compared after whitespace and case normalisation) appears in both splits.
 
@@ -51,7 +54,7 @@ The loader validates pairs and reports what it drops in `benchmark.manifest["exc
 | `html` | `content_html` | Page HTML with markup, CSS and layout |
 | `markdown` | `content_markdown` | Markdown rendering of the page |
 | `accessibility` | `content_ax_yaml` | Accessibility tree as YAML (roles, names, structure) |
-| `screenshot` | `screenshots/` | Full-page JPEG capture; `Page.content` is the file path |
+| `screenshot` | `screenshot` (embedded) or `screenshots/` | Full-page JPEG capture; `Page.content` is a local file path |
 
 All pairs in the current release have the three text views. When loading a custom source, empty or missing views are excluded and counted; the loader never falls back to another view.
 
@@ -73,7 +76,7 @@ attack_image = Image.open(pair.malicious.content)
 control_image = Image.open(pair.benign.content)
 ```
 
-`Page.content` is the local JPEG path; labels, tasks, and pair metadata work as in the text views. The first Hub load downloads **all** `screenshots/**` (about 45 GB), before `split` and `n_pairs` are applied. Later loads reuse the cache. To use an existing local collection, pass `source="/path/to/dataset"` with both its `data/` and `screenshots/` directories. Unreadable or truncated images are treated as missing.
+`Page.content` is a local JPEG path under `$HF_HOME/browsesafe_pp/screenshots/`; labels, tasks, and pair metadata work as in the text views. For a local copy, pass `source=` with its `data/` directory.
 
 To download just one image without loading the collection:
 
@@ -104,10 +107,10 @@ The loaded `Page` exposes the selected view as `content`, the label as `injected
 
 | Field | Type | Meaning |
 |---|---|---|
-| `entry_id` | string | `NNNNN_malicious` or `NNNNN_benign` |
+| `entry_id` | string | `NNNNN_malicious` or `NNNNN_benign`; an opaque 12-character id on test rows |
 | `arm` | string | `attack` or `control` |
 | `label` | string | `yes` (injection present) or `no` |
-| `split` | string | `train` (the only split in the public dataset) or `test` |
+| `split` | string | `train` (labelled) or `test` (label-free leaderboard inputs) |
 
 ### Page and context
 
@@ -115,7 +118,7 @@ The loaded `Page` exposes the selected view as `content`, the label as `injected
 |---|---|---|
 | `title` | string | Page title |
 | `content_html`, `content_markdown`, `content_ax_yaml` | string | The three text views |
-| `screenshot` | image | Screenshot reference; the Hugging Face loader decodes it to a PIL image. The SDK's screenshot view exposes the cached JPEG path. |
+| `screenshot` | image | The page's JPEG and its file path; `datasets` decodes it to a PIL image. The SDK's screenshot view exposes a local JPEG path. |
 | `page_type` | string | One of 12 page classes (below) |
 | `domain` | string | Coarse site purpose: `general_web`, `social_media`, `workspace`, `education`, `entertainment`, `e_commerce` |
 | `language_page` | list of strings | Lowercase ISO 639-1 codes of the page text, in mention order |

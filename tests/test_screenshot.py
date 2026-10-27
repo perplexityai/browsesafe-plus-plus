@@ -1,15 +1,14 @@
-import shutil
-
 import pytest
 
 import browsesafe_pp as bs
+from browsesafe_pp.testing import write_fixture
 
 
 @pytest.mark.parametrize("bucketed", [False, True])
-def test_screenshot_view(source, tmp_path, bucketed):
+def test_screenshot_view_from_files(tmp_path, hf_home, bucketed):
+    """Shards without embedded images (dataset v0.1, older copies) read the screenshot files."""
     Image = pytest.importorskip("PIL.Image")
-    root = tmp_path / "src"
-    shutil.copytree(source, root)
+    root = write_fixture(tmp_path / "src", n_pairs=12, embed_screenshots=False)
     shots = root / "screenshots"
     shots.mkdir()
     for pair_id in ("00001", "00002"):
@@ -20,6 +19,8 @@ def test_screenshot_view(source, tmp_path, bucketed):
     benchmark = bs.load(source=root, split=None, view="screenshot")
     assert sorted(benchmark.manifest["pair_ids"]) == ["00001", "00002"]
     assert benchmark.manifest["exclusions"]["missing_view_pairs"] == 10
+    assert all(page.content.startswith(str(shots.resolve())) for page in benchmark)
+    assert not (hf_home / "browsesafe_pp").exists()
 
     from browsesafe_pp import screenshot
     parts = screenshot.user_content(benchmark.pairs[0].malicious.content, tile_height=1536, max_tiles=1)

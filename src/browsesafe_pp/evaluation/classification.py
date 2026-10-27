@@ -15,7 +15,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Sequence
 
 from ..dataset import SCREENSHOT_VIEW, Benchmark, DetectorInput, Prediction
 from .prompts import ClassificationPrompt, get_classification_prompt
@@ -66,14 +66,10 @@ def _outcome(result: Any) -> Outcome:
     return ("abstained" if result.injected is None else "valid"), result.injected, result.score
 
 
-def evaluate(benchmark: Benchmark, predict: Callable[[DetectorInput], Prediction | bool | None]) -> DetectionReport:
-    """Call ``predict`` once per page (no retries) and score the results.
-
-    Exceptions and invalid return values are recorded as failures, never as a label.
-    """
-    _check(benchmark, predict)
+def _outcomes(pages: Sequence[Any], predict: Callable[..., Any]) -> list[Outcome]:
+    """Call ``predict`` on each page's ``model_input`` in order, one call per page."""
     outcomes: list[Outcome] = []
-    for page in benchmark:
+    for page in pages:
         try:
             result = predict(page.model_input)
             if inspect.iscoroutine(result):
@@ -82,18 +78,15 @@ def evaluate(benchmark: Benchmark, predict: Callable[[DetectorInput], Prediction
             outcomes.append(_outcome(result))
         except Exception:
             outcomes.append(("error", None, None))
-    return score(benchmark, outcomes, {"protocol": "synchronous"})
+    return outcomes
 
 
-async def evaluate_async(benchmark: Benchmark,
-                         predict: Callable[[DetectorInput], Awaitable[Prediction | bool | None] | Prediction | bool | None],
-                         *, concurrency: int = 8) -> DetectionReport:
-    """Like :func:`evaluate`, with up to ``concurrency`` calls in flight; results keep dataset order."""
-    _check(benchmark, predict)
+async def _outcomes_async(pages: Sequence[Any], predict: Callable[..., Any], concurrency: int) -> list[Outcome]:
+    """Like :func:`_outcomes`, with up to ``concurrency`` calls in flight; outcomes keep page order."""
     if type(concurrency) is not int or concurrency < 1:
         raise ValueError("concurrency must be a positive integer")
-    outcomes: list[Outcome] = [("error", None, None)] * len(benchmark)
-    pending = iter(enumerate(benchmark))
+    outcomes: list[Outcome] = [("error", None, None)] * len(pages)
+    pending = iter(enumerate(pages))
 
     async def worker() -> None:
         for index, page in pending:
@@ -105,7 +98,7 @@ async def evaluate_async(benchmark: Benchmark,
             except Exception:
                 outcomes[index] = ("error", None, None)
 
-    workers = [asyncio.ensure_future(worker()) for _ in range(min(concurrency, len(benchmark)))]
+    workers = [asyncio.ensure_future(worker()) for _ in range(min(concurrency, len(pages)))]
     try:
         await asyncio.gather(*workers)
     finally:
@@ -113,6 +106,24 @@ async def evaluate_async(benchmark: Benchmark,
             if not task.done():
                 task.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
+    return outcomes
+
+
+def evaluate(benchmark: Benchmark, predict: Callable[[DetectorInput], Prediction | bool | None]) -> DetectionReport:
+    """Call ``predict`` once per page (no retries) and score the results.
+
+    Exceptions and invalid return values are recorded as failures, never as a label.
+    """
+    _check(benchmark, predict)
+    return score(benchmark, _outcomes(list(benchmark), predict), {"protocol": "synchronous"})
+
+
+async def evaluate_async(benchmark: Benchmark,
+                         predict: Callable[[DetectorInput], Awaitable[Prediction | bool | None] | Prediction | bool | None],
+                         *, concurrency: int = 8) -> DetectionReport:
+    """Like :func:`evaluate`, with up to ``concurrency`` calls in flight; results keep dataset order."""
+    _check(benchmark, predict)
+    outcomes = await _outcomes_async(list(benchmark), predict, concurrency)
     return score(benchmark, outcomes, {"protocol": "asynchronous", "concurrency": concurrency})
 
 
