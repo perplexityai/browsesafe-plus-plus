@@ -8,7 +8,7 @@ Yuetian Chen<sup>\*1,2</sup>, Kaiyuan Zhang<sup>\*1,3</sup>, Yuntao Du<sup>1,2</
 
 <sup>1</sup>Perplexity, <sup>2</sup>Purdue University, and <sup>3</sup>Rutgers University &nbsp;·&nbsp; <sup>\*</sup>Equal contribution
 
-[Paper](https://arxiv.org/abs/2610.17457) · [Documentation](docs/index.md) · [Benchmark](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus) · [Classification](docs/classification.md) · [Adaptive attacks](docs/adaptive.md) · [Website](https://browsesafe.perplexity.ai/) · [Leaderboard](https://browsesafe.perplexity.ai/leaderboard/)
+[Paper](https://arxiv.org/abs/2610.17457) · [Blog](https://www.perplexity.ai/hub/blog/browsesafe-plus-plus) · [Documentation](docs/index.md) · [Benchmark](https://huggingface.co/datasets/perplexity-ai/browsesafe-plus-plus) · [Classification](docs/classification.md) · [Adaptive attacks](docs/adaptive.md) · [Website](https://browsesafe.perplexity.ai/) · [Leaderboard](https://browsesafe.perplexity.ai/leaderboard/)
 
 </div>
 
